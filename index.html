@@ -839,10 +839,12 @@ function loadOrCreateMes() {
       cfgState = {mes: row.mes, anio: row.anio, semanas: row.semanas, meta: row.meta};
       weekHasDataCache = {};
       weekRecords = {cobro:[], wapp:[]};
-      cWeek = 1;
+      cWeek = getCurrentWeekOfMonth();
       applyConfig();
       buildWsel();
       renderWeek();
+      // Show pending reminder now that we have the real mesId
+      showPendingReminder(row.id);
     } else {
       // No mes exists yet — create one automatically with defaults
       applyConfig();
@@ -1171,7 +1173,16 @@ function addR(key) {
   var fEl=document.getElementById('inp-f-'+key);
   var dEl=document.getElementById('inp-d-'+key);
   var notaEl=document.getElementById('inp-nota-'+key);
-  if(!nEl||!nEl.value.trim()){if(nEl){nEl.classList.add('err');nEl.focus();setTimeout(function(){nEl.classList.remove('err');},1500);}return;}
+  if(!nEl||!nEl.value.trim()){
+    if(nEl){nEl.classList.add('err');nEl.focus();setTimeout(function(){nEl.classList.remove('err');},1500);}
+    toast('⚠️ El nombre del contribuyente es requerido.','warn');
+    return;
+  }
+  if(!dEl||!dEl.value.trim()){
+    if(dEl){dEl.classList.add('err');dEl.focus();setTimeout(function(){dEl.classList.remove('err');},1500);}
+    toast('⚠️ Debes seleccionar una Descripción / Gestión para continuar.','warn');
+    return;
+  }
   var rec = {
     mes_id: currentMesId,
     user_id: currentProfile.id,
@@ -1268,6 +1279,14 @@ function confirmEdit(){
   if(!editTarget)return;
   var n=document.getElementById('ed-n');var m=document.getElementById('ed-m');
   var f=document.getElementById('ed-f');var d=document.getElementById('ed-d');var nota=document.getElementById('ed-nota');
+  if(!n||!n.value.trim()){
+    if(n){n.classList.add('err');n.focus();setTimeout(function(){n.classList.remove('err');},1500);}
+    toast('⚠️ El nombre del contribuyente es requerido.','warn'); return;
+  }
+  if(!d||!d.value.trim()){
+    if(d){d.classList.add('err');d.focus();setTimeout(function(){d.classList.remove('err');},1500);}
+    toast('⚠️ Debes seleccionar una Descripción / Gestión para continuar.','warn'); return;
+  }
   var upd={updated_at:new Date().toISOString()};
   if(n)upd.nombre=n.value.trim();
   if(m)upd.monto=parseFloat(m.value)||0;
@@ -1275,11 +1294,16 @@ function confirmEdit(){
   if(d)upd.desc_gestion=d.value.trim();
   if(nota)upd.nota=nota.value.trim();
   setAS('saving','Actualizando...');
-  sbFetch('PATCH','/rest/v1/registros?id=eq.'+editTarget.id,upd).then(function(){
-    var r=weekRecords[editTarget.key][editTarget.idx];
+  // Save key/idx BEFORE closeEdit() nulls editTarget
+  var _key=editTarget.key, _idx=editTarget.idx, _id=editTarget.id;
+  sbFetch('PATCH','/rest/v1/registros?id=eq.'+_id,upd).then(function(){
+    var r=weekRecords[_key][_idx];
     if(r){Object.keys(upd).forEach(function(k){if(k!=='updated_at')r[k]=upd[k];});}
-    closeEdit();refreshL(editTarget.key);buildNameDL();
-    setAS('saved','Guardado '+tNow());toast('✅ Actualizado','ok');
+    closeEdit();
+    refreshL(_key);
+    buildNameDL();
+    setAS('saved','Guardado '+tNow());
+    toast('✅ Actualizado','ok');
   }).catch(function(e){toast('❌ '+e.message,'err');});
 }
 
@@ -1319,7 +1343,7 @@ function switchIngresoMes(){
       // Clear cache and records before reloading
       weekHasDataCache = {};
       weekRecords = {cobro:[], wapp:[]};
-      cWeek = 1;
+      cWeek = getCurrentWeekOfMonth();
       applyConfig(); buildWsel(); loadWeekRecords();
       if(statusEl) statusEl.textContent = '📅 '+mes+' '+anio;
       var cm=document.getElementById('cfg-mes');
@@ -1327,6 +1351,8 @@ function switchIngresoMes(){
       if(cm) cm.value = cfgState.mes;
       if(ca) ca.value = cfgState.anio;
       toast('📅 Cargado: '+mes+' '+anio, 'ok');
+      // Show pending reminder for this month
+      showPendingReminder(rows[0].id);
       return;
     } else {
       // This month has no data yet — ask to create
@@ -1858,9 +1884,11 @@ function exportPDF(){
   setTimeout(function(){window.print();setTimeout(function(){document.querySelectorAll('.sec').forEach(function(s){s.classList.remove('on');});document.querySelectorAll('.nb').forEach(function(b){b.classList.remove('on');});if(prev)prev.classList.add('on');if(prevBtn)prevBtn.classList.add('on');},600);},300);
   toast('🖨️ Selecciona "Guardar como PDF"','info');
 }
-function exportFullBackup(personalOnly){
+function exportFullBackup(personalOnly, p_mes, p_anio){
+  var mes  = p_mes  || cfgState.mes;
+  var anio = p_anio || cfgState.anio;
   var isAdmin = (currentProfile && currentProfile.role === 'admin') && !personalOnly;
-  toast('⏳ Generando consolidado...','info');
+  toast('⏳ Generando consolidado de '+mes+' '+anio+'...','info');
 
   // Get all active profiles (admin sees all, funcionario sees only themselves)
   var profilesPromise = isAdmin
@@ -1875,16 +1903,16 @@ function exportFullBackup(personalOnly){
     var userIds = profiles.map(function(p){return p.id;});
     var mesFilter = userIds.map(function(id){return 'user_id.eq.'+id;}).join(',');
     var mesQuery = userIds.length===1
-      ? '/rest/v1/meses?user_id=eq.'+userIds[0]+'&mes=eq.'+encodeURIComponent(cfgState.mes)+'&anio=eq.'+cfgState.anio+'&activo=eq.true'
-      : '/rest/v1/meses?or=('+mesFilter+')&mes=eq.'+encodeURIComponent(cfgState.mes)+'&anio=eq.'+cfgState.anio+'&activo=eq.true';
+      ? '/rest/v1/meses?user_id=eq.'+userIds[0]+'&mes=eq.'+encodeURIComponent(mes)+'&anio=eq.'+anio+'&order=created_at.desc&limit=1'
+      : '/rest/v1/meses?or=('+mesFilter+')&mes=eq.'+encodeURIComponent(mes)+'&anio=eq.'+anio+'&order=created_at.desc';
 
     sbFetch('GET', mesQuery).then(function(meses){
       meses = meses||[];
-      if(!meses.length){toast('Sin datos del mes '+cfgState.mes+' '+cfgState.anio,'warn');return;}
+      if(!meses.length){toast('Sin datos para '+mes+' '+anio,'warn');return;}
 
       // Map user_id → mes_id
       var userMesMap = {};
-      meses.forEach(function(mes){userMesMap[mes.user_id]=mes.id;});
+      meses.forEach(function(mr){userMesMap[mr.user_id]=mr.id;});
 
       // Fetch all registros for these meses
       var mesIds = meses.map(function(m){return m.id;});
@@ -1894,15 +1922,16 @@ function exportFullBackup(personalOnly){
 
       sbFetch('GET', regFilter).then(function(recs){
         recs = recs||[];
-        buildConsolidadoXLSX(profiles, recs, userMesMap);
+        buildConsolidadoXLSX(profiles, recs, userMesMap, mes, anio);
       }).catch(function(e){toast('❌ Error al cargar registros: '+e.message,'err');});
     }).catch(function(e){toast('❌ Error al cargar meses: '+e.message,'err');});
   }).catch(function(e){toast('❌ '+e.message,'err');});
 }
 
-function buildConsolidadoXLSX(profiles, allRecs, userMesMap){
+function buildConsolidadoXLSX(profiles, allRecs, userMesMap, p_mes, p_anio){
   var wb = XLSX.utils.book_new();
-  var mes = cfgState.mes; var anio = cfgState.anio;
+  var mes = p_mes || cfgState.mes;
+  var anio = p_anio || cfgState.anio;
 
   // ── Hoja CONSOLIDADO GENERAL (solo admin) ──────────────────
   if (profiles.length > 1) {
@@ -2154,6 +2183,60 @@ function exportDesgloceExcel(){
 }
 
 
+
+function showPendingReminder(mesId){
+  if(!mesId||!currentProfile) return;
+  var wk = getCurrentWeekOfMonth();
+  // Query ALL weeks, not just current — so user sees ALL pending
+  sbFetch('GET','/rest/v1/registros?mes_id=eq.'+mesId
+    +'&user_id=eq.'+currentProfile.id
+    +'&status=eq.pending&select=nombre,desc_gestion,semana&order=semana.asc&limit=50'
+  ).then(function(pend){
+    if(!pend||!pend.length) return;
+    // Remove any existing box
+    var old = document.getElementById('pendBox'); if(old) old.remove();
+    // Group by semana
+    var bySem = {};
+    pend.forEach(function(r){
+      var s = r.semana||'?';
+      if(!bySem[s]) bySem[s]=[];
+      bySem[s].push(r);
+    });
+    var lines = '';
+    Object.keys(bySem).sort().forEach(function(sem){
+      lines += '<div style="margin-top:6px;font-size:0.71rem;color:var(--tx2);font-weight:600">Semana '+sem+'</div>';
+      bySem[sem].slice(0,3).forEach(function(r){
+        lines += '<div>• '+esc(r.nombre)+(r.desc_gestion?' <span style="color:var(--tx2)">'+esc(r.desc_gestion)+'</span>':'')+'</div>';
+      });
+      if(bySem[sem].length>3) lines += '<div style="color:var(--tx2)">...y '+(bySem[sem].length-3)+' más</div>';
+    });
+    var box = document.createElement('div');
+    box.id = 'pendBox';
+    box.style.cssText = 'position:fixed;top:68px;right:14px;z-index:9999;'
+      +'background:var(--sf2);border:1.5px solid var(--yw);border-radius:10px;'
+      +'padding:13px 15px;max-width:320px;font-size:0.77rem;line-height:1.7;'
+      +'box-shadow:0 6px 24px rgba(0,0,0,0.3);max-height:70vh;overflow-y:auto';
+    box.innerHTML =
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+      +'<strong style="color:var(--yw)">📌 '+pend.length+' pendiente'+(pend.length!==1?'s':'')+' este mes</strong>'
+      +'<button onclick="closePendBox()" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:1.1rem;line-height:1;padding:0 3px">✕</button>'
+      +'</div>'
+      +'<div style="color:var(--tx);font-size:0.76rem">'+lines+'</div>'
+      +'<button onclick="goToIngreso()" '
+      +'style="margin-top:10px;width:100%;padding:7px 0;background:var(--yw);color:#000;'
+      +'border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:0.75rem">'
+      +'Ver en Ingreso →</button>';
+    document.body.appendChild(box);
+    // Auto-dismiss after 20 seconds
+    setTimeout(function(){var b=document.getElementById('pendBox');if(b)b.remove();},20000);
+  }).catch(function(e){
+    console.error('Pending reminder error:', e);
+  });
+}
+function goToIngreso(){var si=document.getElementById('sec-ingreso');document.querySelectorAll('.sec').forEach(function(s){s.classList.remove('on');});if(si)si.classList.add('on');document.querySelectorAll('.nb').forEach(function(b){b.classList.remove('on');});var nb=document.querySelector('.nb[onclick*=ingreso]');if(nb)nb.classList.add('on');var pb=document.getElementById('pendBox');if(pb)pb.remove();}
+function closePendBox(){var b=document.getElementById('pendBox');if(b)b.remove();}
+function getCurrentWeekOfMonth(){var day=new Date().getDate();if(day<=7)return 1;if(day<=14)return 2;if(day<=21)return 3;if(day<=28)return 4;return 5;}
+
 var _infData=null;
 function initInformes(){
   var m2=document.getElementById('inf-mes'),a=document.getElementById('inf-anio');
@@ -2312,5 +2395,17 @@ document.head.appendChild(style2);
 
 
 </script>
+
+<!-- EDIT RECORD OVERLAY -->
+<div class="mbg" id="editOverlay">
+  <div class="modal">
+    <h3>✏️ Editar Registro</h3>
+    <div class="edit-grid" id="editGrid"></div>
+    <div class="edit-acts">
+      <button class="btn btn-sc" onclick="closeEdit()">Cancelar</button>
+      <button class="btn btn-yw" onclick="confirmEdit()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
