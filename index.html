@@ -1051,7 +1051,7 @@ function renderWeek() {
 function loadWeekRecords() {
   if (!currentMesId) return;
   setAS('saving', 'Cargando semana ' + cWeek + '...');
-  sbFetch('GET', '/rest/v1/registros?mes_id=eq.' + currentMesId + '&user_id=eq.' + currentProfile.id + '&semana=eq.' + cWeek + '&order=created_at.asc').then(function(rows) {
+  sbFetch('GET', '/rest/v1/registros?mes_id=eq.' + currentMesId + '&user_id=eq.' + currentProfile.id + '&semana=eq.' + cWeek + '&order=created_at.desc').then(function(rows) {
     weekRecords.cobro = rows ? rows.filter(function(r){return r.tipo==='cobro';}) : [];
     weekRecords.wapp  = rows ? rows.filter(function(r){return r.tipo==='wapp';}) : [];
     refreshAllPanels();
@@ -1197,7 +1197,7 @@ function addR(key) {
   };
   setAS('saving','Guardando...');
   sbFetch('POST', '/rest/v1/registros', rec).then(function(rows) {
-    if (rows && rows.length) weekRecords[key].push(rows[0]);
+    if (rows && rows.length) weekRecords[key].unshift(rows[0]);
     nEl.value=''; if(mEl&&mEl.type!=='hidden')mEl.value=''; if(dEl)dEl.value=''; if(notaEl)notaEl.value='';
     nEl.focus();
     refreshL(key); refreshB(key); buildWsel(); updateProg();
