@@ -2029,6 +2029,70 @@ function buildConsolidadoXLSX(profiles, allRecs, userMesMap, p_mes, p_anio){
     var cCols = [{wch:18},{wch:34}]; gestList.forEach(function(){cCols.push({wch:14});}); cCols.push({wch:16});
     wsC['!cols'] = cCols;
     XLSX.utils.book_append_sheet(wb, wsC, 'Consolidado General');
+
+    // ── Hoja RESUMEN MONTOS — pivot limpio de gestión × funcionario ──
+    // Solo gestiones que tienen algún monto en cualquier funcionario
+    var gestConMonto = gestList.filter(function(g){
+      return profiles.some(function(p){ return (userGestMonto[p.id][g]||0)>0; });
+    });
+    var rmHeader = ['DESCRIPCIÓN / GESTIÓN'].concat(profiles.map(function(p){return p.nombre;})).concat(['TOTAL (₡)']);
+    var rmData = [
+      ['RESUMEN MONTOS (₡) — '+mes+' '+anio],
+      ['Municipalidad de Golfito · Elaborado por: Ing Mohamed Sánchez Camacho'],
+      [],
+      rmHeader
+    ];
+    var rmColTotals = profiles.map(function(){return 0;});
+    var rmGrandTotal = 0;
+    gestConMonto.forEach(function(g){
+      var row = [g];
+      var rowTotal = 0;
+      profiles.forEach(function(p, pi){
+        var mv = userGestMonto[p.id][g]||0;
+        row.push(mv);
+        rowTotal += mv;
+        rmColTotals[pi] += mv;
+      });
+      row.push(rowTotal);
+      rmGrandTotal += rowTotal;
+      rmData.push(row);
+    });
+    rmData.push([]);
+    var rmTotalRow = ['TOTAL (₡)'].concat(rmColTotals).concat([rmGrandTotal]);
+    rmData.push(rmTotalRow);
+    var wsRM = XLSX.utils.aoa_to_sheet(rmData);
+    var rmCols = [{wch:34}]; profiles.forEach(function(){rmCols.push({wch:18});}); rmCols.push({wch:18});
+    wsRM['!cols'] = rmCols;
+    XLSX.utils.book_append_sheet(wb, wsRM, 'Resumen Montos');
+
+    // ── Hoja MONTOS POR FUNCIONARIO — formato simple por secciones ──
+    var mpfData = [
+      ['MONTOS POR FUNCIONARIO — '+mes+' '+anio],
+      ['Municipalidad de Golfito · Elaborado por: Ing Mohamed Sánchez Camacho'],
+      []
+    ];
+    profiles.forEach(function(p){
+      // Get gestiones with monto > 0 for this user, sorted desc
+      var pGest = gestList
+        .map(function(g){ return {g:g, m:userGestMonto[p.id][g]||0}; })
+        .filter(function(x){ return x.m > 0; })
+        .sort(function(a,b){ return b.m - a.m; });
+      if(!pGest.length) return; // skip users with no montos
+      // User name as section header
+      mpfData.push([p.nombre]);
+      pGest.forEach(function(x){
+        mpfData.push(['  '+x.g, x.m]);
+      });
+      // Subtotal for this user
+      var pTotal = pGest.reduce(function(s,x){return s+x.m;},0);
+      mpfData.push(['  TOTAL '+p.nombre, pTotal]);
+      mpfData.push([]); // blank row between users
+    });
+    // Grand total at end
+    mpfData.push(['TOTAL GENERAL (₡)', grandMonto]);
+    var wsMPF = XLSX.utils.aoa_to_sheet(mpfData);
+    wsMPF['!cols'] = [{wch:36},{wch:18}];
+    XLSX.utils.book_append_sheet(wb, wsMPF, 'Montos por Funcionario');
   }
 
   // ── Por cada usuario: hoja detalle + hoja totales ──────────
@@ -2077,29 +2141,30 @@ function buildConsolidadoXLSX(profiles, allRecs, userMesMap, p_mes, p_anio){
     wsTot['!cols']=[{wch:34},{wch:18},{wch:12},{wch:16},{wch:16}];
     XLSX.utils.book_append_sheet(wb, wsTot, (shName+' Totales').substring(0,31));
 
-    // ── Hoja MONTO POR GESTIÓN del usuario (solo gestiones con monto) ──
+    // ── Hoja MONTO (₡) — resumen simple solo de gestiones con monto ──
     var gConMonto = gSorted.filter(function(x){return x[1].monto>0;});
-    if(gConMonto.length){
+    {
+      // Siempre crear la hoja aunque no haya montos — mostrará encabezado limpio
       var mData=[
-        ['MONTO POR GESTIÓN — '+mes+' '+anio],
-        ['Funcionario: '+p.nombre],[],
-        ['DESCRIPCIÓN / GESTIÓN','COBRO','WHATSAPP','TOTAL GESTIONES','MONTO (₡)']
+        [p.nombre],
+        [mes+' '+anio],
+        [],
+        ['DESCRIPCIÓN / GESTIÓN','MONTO (₡)']
       ];
       var smTotal=0;
       gConMonto.forEach(function(entry){
-        var k=entry[0],v=entry[1];
-        mData.push([k, v.cobro, v.wapp, v.total, v.monto]);
+        var k=entry[0], v=entry[1];
+        mData.push([k, v.monto]);
         smTotal+=v.monto;
       });
+      if(!gConMonto.length){
+        mData.push(['Sin gestiones con monto registrado', 0]);
+      }
       mData.push([]);
-      mData.push(['TOTAL',
-        gConMonto.reduce(function(s,x){return s+x[1].cobro;},0),
-        gConMonto.reduce(function(s,x){return s+x[1].wapp;},0),
-        gConMonto.reduce(function(s,x){return s+x[1].total;},0),
-        smTotal]);
+      mData.push(['TOTAL', smTotal]);
       var wsMon = XLSX.utils.aoa_to_sheet(mData);
-      wsMon['!cols']=[{wch:34},{wch:10},{wch:12},{wch:16},{wch:16}];
-      XLSX.utils.book_append_sheet(wb, wsMon, (shName+' Montos').substring(0,31));
+      wsMon['!cols']=[{wch:36},{wch:18}];
+      XLSX.utils.book_append_sheet(wb, wsMon, (shName+' Monto ₡').substring(0,31));
     }
 
     // ── Hoja GESTIONES DE COBRO del usuario ────────────────
@@ -2142,6 +2207,34 @@ function buildConsolidadoXLSX(profiles, allRecs, userMesMap, p_mes, p_anio){
     }
   });
 
+  // For single user, add a simple monto summary sheet
+  if(profiles.length === 1){
+    var sp = profiles[0];
+    var spRecs = allRecs.filter(function(r){return r.user_id===sp.id;});
+    var spGest = {};
+    spRecs.forEach(function(r){
+      var k=r.desc_gestion&&r.desc_gestion.trim()?r.desc_gestion.trim():'Sin descripción';
+      spGest[k]=(spGest[k]||0)+(parseFloat(r.monto)||0);
+    });
+    var spSorted = Object.keys(spGest)
+      .filter(function(k){return spGest[k]>0;})
+      .sort(function(a,b){return spGest[b]-spGest[a];});
+    if(spSorted.length){
+      var spData=[
+        [sp.nombre],
+        [mes+' '+anio],
+        []
+      ];
+      spSorted.forEach(function(k){
+        spData.push([k, spGest[k]]);
+      });
+      spData.push([]);
+      spData.push(['TOTAL', spSorted.reduce(function(s,k){return s+spGest[k];},0)]);
+      var wsSP = XLSX.utils.aoa_to_sheet(spData);
+      wsSP['!cols']=[{wch:36},{wch:18}];
+      XLSX.utils.book_append_sheet(wb, wsSP, 'Monto ₡');
+    }
+  }
   var fname = profiles.length===1
     ? 'consolidado-'+profiles[0].nombre.split(' ')[0]+'-'+mes+'-'+anio+'.xlsx'
     : 'consolidado-equipo-'+mes+'-'+anio+'.xlsx';
