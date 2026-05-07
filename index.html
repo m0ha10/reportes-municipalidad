@@ -2052,7 +2052,12 @@ function buildConsolidadoXLSX(profiles, allRecs, userMesMap, p_mes, p_anio){
     gestiones.forEach(function(g){
       if(!gCounts[g.nombre]) gCounts[g.nombre]={cobro:0,wapp:0,total:0,monto:0};
     });
-    var gSorted = Object.entries(gCounts).sort(function(a,b){return b[1].total-a[1].total;});
+    var gSorted = Object.entries(gCounts)
+      .filter(function(x){return x[1].total>0 || x[1].monto>0;})
+      .sort(function(a,b){
+        if(b[1].total !== a[1].total) return b[1].total - a[1].total;
+        return b[1].monto - a[1].monto;
+      });
 
     // ── Hoja TOTALES del usuario ────────────────────────────
     var totData = [
@@ -2071,6 +2076,31 @@ function buildConsolidadoXLSX(profiles, allRecs, userMesMap, p_mes, p_anio){
     var wsTot = XLSX.utils.aoa_to_sheet(totData);
     wsTot['!cols']=[{wch:34},{wch:18},{wch:12},{wch:16},{wch:16}];
     XLSX.utils.book_append_sheet(wb, wsTot, (shName+' Totales').substring(0,31));
+
+    // ── Hoja MONTO POR GESTIÓN del usuario (solo gestiones con monto) ──
+    var gConMonto = gSorted.filter(function(x){return x[1].monto>0;});
+    if(gConMonto.length){
+      var mData=[
+        ['MONTO POR GESTIÓN — '+mes+' '+anio],
+        ['Funcionario: '+p.nombre],[],
+        ['DESCRIPCIÓN / GESTIÓN','COBRO','WHATSAPP','TOTAL GESTIONES','MONTO (₡)']
+      ];
+      var smTotal=0;
+      gConMonto.forEach(function(entry){
+        var k=entry[0],v=entry[1];
+        mData.push([k, v.cobro, v.wapp, v.total, v.monto]);
+        smTotal+=v.monto;
+      });
+      mData.push([]);
+      mData.push(['TOTAL',
+        gConMonto.reduce(function(s,x){return s+x[1].cobro;},0),
+        gConMonto.reduce(function(s,x){return s+x[1].wapp;},0),
+        gConMonto.reduce(function(s,x){return s+x[1].total;},0),
+        smTotal]);
+      var wsMon = XLSX.utils.aoa_to_sheet(mData);
+      wsMon['!cols']=[{wch:34},{wch:10},{wch:12},{wch:16},{wch:16}];
+      XLSX.utils.book_append_sheet(wb, wsMon, (shName+' Montos').substring(0,31));
+    }
 
     // ── Hoja GESTIONES DE COBRO del usuario ────────────────
     if(cobro.length){
@@ -2096,14 +2126,18 @@ function buildConsolidadoXLSX(profiles, allRecs, userMesMap, p_mes, p_anio){
       var wData=[
         ['WHATSAPP — '+mes+' '+anio],
         ['Funcionario: '+p.nombre],[],
-        ['#','NOMBRE CONTRIBUYENTE','FECHA','DESCRIPCIÓN / GESTIÓN','NOTA','ESTADO']
+        ['#','NOMBRE CONTRIBUYENTE','FECHA','DESCRIPCIÓN / GESTIÓN','NOTA','ESTADO','MONTO (₡)']
       ];
       wapp.forEach(function(r,i){
         wData.push([i+1, r.nombre, r.fecha?fmtD(r.fecha):'', r.desc_gestion||'', r.nota||'',
-          r.status==='done'?'Resuelto':r.status==='pending'?'Pendiente':'']);
+          r.status==='done'?'Resuelto':r.status==='pending'?'Pendiente':'',
+          parseFloat(r.monto)||0]);
       });
+      var totalMW = wapp.reduce(function(s,r){return s+(parseFloat(r.monto)||0);},0);
+      wData.push([]);
+      wData.push(['','','','','','TOTAL',totalMW]);
       var wsW = XLSX.utils.aoa_to_sheet(wData);
-      wsW['!cols']=[{wch:5},{wch:36},{wch:12},{wch:28},{wch:24},{wch:12}];
+      wsW['!cols']=[{wch:5},{wch:36},{wch:12},{wch:28},{wch:24},{wch:12},{wch:14}];
       XLSX.utils.book_append_sheet(wb, wsW, (shName+' WhatsApp').substring(0,31));
     }
   });
