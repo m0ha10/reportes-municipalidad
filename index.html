@@ -1987,7 +1987,8 @@ function buildConsolidadoXLSX(profiles, allRecs, userMesMap, p_mes, p_anio){
         colTotals[g]+=v;
         colMontosTotal[g]+=(userGestMonto[p.id][g]||0);
       });
-      rowMonto = Object.values(userGestMonto[p.id]).reduce(function(s,v){return s+v;},0);
+      rowMonto = 0;
+      Object.keys(userGestMonto[p.id]).forEach(function(k){rowMonto+=userGestMonto[p.id][k]||0;});
       row.push(rowTotal);
       row.push(rowMonto);
       grandMonto+=rowMonto;
@@ -2002,8 +2003,30 @@ function buildConsolidadoXLSX(profiles, allRecs, userMesMap, p_mes, p_anio){
     consData.push([]);
     consData.push(totalRow);
 
+    // Add monto summary section below the count pivot
+    consData.push([],[]);
+    var montoHeader = ['MONTO (₡) POR GESTIÓN'];
+    montoHeader.push('FUNCIONARIO');
+    gestList.forEach(function(g){montoHeader.push(g);});
+    montoHeader.push('TOTAL MONTO');
+    consData.push(montoHeader);
+    var grandMontoRow = ['', 'TOTAL'];
+    gestList.forEach(function(g){grandMontoRow.push(colMontosTotal[g]||0);});
+    grandMontoRow.push(grandMonto);
+    profiles.forEach(function(p){
+      var mRow = ['', p.nombre];
+      var pTotal = 0;
+      gestList.forEach(function(g){
+        var mv = userGestMonto[p.id][g]||0;
+        mRow.push(mv);
+        pTotal+=mv;
+      });
+      mRow.push(pTotal);
+      consData.push(mRow);
+    });
+    consData.push(grandMontoRow);
     var wsC = XLSX.utils.aoa_to_sheet(consData);
-    var cCols = [{wch:34}]; gestList.forEach(function(){cCols.push({wch:14});}); cCols.push({wch:10});
+    var cCols = [{wch:18},{wch:34}]; gestList.forEach(function(){cCols.push({wch:14});}); cCols.push({wch:16});
     wsC['!cols'] = cCols;
     XLSX.utils.book_append_sheet(wb, wsC, 'Consolidado General');
   }
