@@ -330,7 +330,7 @@ td.zero{color:var(--tx3);}
       Ingresar
     </button>
     <div style="text-align:center;margin-top:16px;font-size:0.7rem;color:var(--tx3);">
-      elaborado por <span style="color:var(--ac2);font-weight:600;">ing-m0his</span>
+      elaborado por <span style="color:var(--ac2);font-weight:600;">Ing Mohamed Sánchez Camacho</span>
     </div>
   </div>
 </div>
@@ -346,7 +346,7 @@ td.zero{color:var(--tx3);}
       <div>
         <h1>Sistema de Reportes Mensual</h1>
         <div class="hdr-sub" id="hdrSub">Municipalidad de Golfito</div>
-        <div class="hdr-credit">elaborado por <span>ing-m0his</span></div>
+        <div class="hdr-credit">elaborado por <span>Ing Mohamed Sánchez Camacho</span></div>
       </div>
     </div>
     <div class="hdr-right">
@@ -1844,7 +1844,7 @@ function exportExcel(){
     var rd=[
       ['SISTEMA DE REPORTES MENSUAL'],['Municipalidad de Golfito'],
       ['Funcionario: '+currentProfile.nombre],['Mes: '+cfgState.mes+' '+cfgState.anio],
-      ['Exportado: '+new Date().toLocaleString('es-CR')],['Elaborado por: ing-m0his'],[],
+      ['Exportado: '+new Date().toLocaleString('es-CR')],['Elaborado por: Ing Mohamed Sánchez Camacho'],[],
       ['RESUMEN GENERAL','TOTAL'],
       ['Gestiones de Cobro',t.cobro.length],['Monto Total Cobro',montoCobro],
       ['Atención WhatsApp',t.wapp.length],['Total',t.cobro.length+t.wapp.length],[],
@@ -1954,27 +1954,43 @@ function buildConsolidadoXLSX(profiles, allRecs, userMesMap, p_mes, p_anio){
     });
 
     // Build header row: FUNCIONARIO + each gestión
-    var consHeader = ['FUNCIONARIO'].concat(gestList).concat(['TOTAL']);
+    var consHeader = ['FUNCIONARIO'].concat(gestList).concat(['TOTAL GESTIONES','MONTO TOTAL (₡)']);
     var consData = [
       ['CONSOLIDADO MENSUAL — '+mes+' '+anio],
-      ['Municipalidad de Golfito · Elaborado por: ing-m0his'],
+      ['Municipalidad de Golfito · Elaborado por: Ing Mohamed Sánchez Camacho'],
       ['Exportado: '+new Date().toLocaleString('es-CR')],[],
       consHeader
     ];
 
     // Build totals row accumulator
     var colTotals = {};gestList.forEach(function(g){colTotals[g]=0;});
+    var colMontosTotal = {}; gestList.forEach(function(g){colMontosTotal[g]=0;});
 
+    // Also track monto per user per gestión
+    var userGestMonto = {};
+    profiles.forEach(function(p){
+      userGestMonto[p.id]={};
+      gestList.forEach(function(g){userGestMonto[p.id][g]=0;});
+    });
+    allRecs.forEach(function(r){
+      var k = r.desc_gestion&&r.desc_gestion.trim()?r.desc_gestion.trim():'Sin descripción';
+      if(userGestMonto[r.user_id]) userGestMonto[r.user_id][k]=(userGestMonto[r.user_id][k]||0)+(parseFloat(r.monto)||0);
+    });
+    var grandMonto = 0;
     profiles.forEach(function(p){
       var row = [p.nombre];
-      var rowTotal = 0;
+      var rowTotal = 0, rowMonto = 0;
       gestList.forEach(function(g){
         var v = userGest[p.id][g]||0;
         row.push(v);
         rowTotal+=v;
         colTotals[g]+=v;
+        colMontosTotal[g]+=(userGestMonto[p.id][g]||0);
       });
+      rowMonto = Object.values(userGestMonto[p.id]).reduce(function(s,v){return s+v;},0);
       row.push(rowTotal);
+      row.push(rowMonto);
+      grandMonto+=rowMonto;
       consData.push(row);
     });
     // Grand total row
@@ -1982,6 +1998,7 @@ function buildConsolidadoXLSX(profiles, allRecs, userMesMap, p_mes, p_anio){
     var grandTotal = 0;
     gestList.forEach(function(g){totalRow.push(colTotals[g]);grandTotal+=colTotals[g];});
     totalRow.push(grandTotal);
+    totalRow.push(grandMonto);
     consData.push([]);
     consData.push(totalRow);
 
@@ -2002,14 +2019,15 @@ function buildConsolidadoXLSX(profiles, allRecs, userMesMap, p_mes, p_anio){
     var gCounts = {};
     uRecs.forEach(function(r){
       var k = r.desc_gestion&&r.desc_gestion.trim() ? r.desc_gestion.trim() : 'Sin descripción';
-      if(!gCounts[k]) gCounts[k] = {cobro:0, wapp:0, total:0};
+      if(!gCounts[k]) gCounts[k] = {cobro:0, wapp:0, total:0, monto:0};
       if(r.tipo==='cobro') gCounts[k].cobro++;
       else gCounts[k].wapp++;
       gCounts[k].total++;
+      gCounts[k].monto += (parseFloat(r.monto)||0);
     });
     // Sort desc by total, include zeros for all gestiones
     gestiones.forEach(function(g){
-      if(!gCounts[g.nombre]) gCounts[g.nombre]={cobro:0,wapp:0,total:0};
+      if(!gCounts[g.nombre]) gCounts[g.nombre]={cobro:0,wapp:0,total:0,monto:0};
     });
     var gSorted = Object.entries(gCounts).sort(function(a,b){return b[1].total-a[1].total;});
 
@@ -2017,18 +2035,18 @@ function buildConsolidadoXLSX(profiles, allRecs, userMesMap, p_mes, p_anio){
     var totData = [
       ['TOTALES MENSUALES — '+mes+' '+anio],
       ['Funcionario: '+p.nombre],[],
-      ['DESCRIPCIÓN / GESTIÓN','GESTIONES DE COBRO','WHATSAPP','TOTAL']
+      ['DESCRIPCIÓN / GESTIÓN','GESTIONES DE COBRO','WHATSAPP','TOTAL GESTIONES','MONTO (₡)']
     ];
-    var sumCobro=0, sumWapp=0;
+    var sumCobro=0, sumWapp=0, sumMonto=0;
     gSorted.forEach(function(entry){
       var k=entry[0], v=entry[1];
-      totData.push([k, v.cobro, v.wapp, v.total]);
-      sumCobro+=v.cobro; sumWapp+=v.wapp;
+      totData.push([k, v.cobro, v.wapp, v.total, v.monto||0]);
+      sumCobro+=v.cobro; sumWapp+=v.wapp; sumMonto+=(v.monto||0);
     });
     totData.push([]);
-    totData.push(['TOTAL GENERAL', sumCobro, sumWapp, sumCobro+sumWapp]);
+    totData.push(['TOTAL GENERAL', sumCobro, sumWapp, sumCobro+sumWapp, sumMonto]);
     var wsTot = XLSX.utils.aoa_to_sheet(totData);
-    wsTot['!cols']=[{wch:34},{wch:18},{wch:12},{wch:10}];
+    wsTot['!cols']=[{wch:34},{wch:18},{wch:12},{wch:16},{wch:16}];
     XLSX.utils.book_append_sheet(wb, wsTot, (shName+' Totales').substring(0,31));
 
     // ── Hoja GESTIONES DE COBRO del usuario ────────────────
@@ -2112,10 +2130,17 @@ function exportDashExcel(){
     allRecs.forEach(function(r){var k=r.desc_gestion&&r.desc_gestion.trim()?r.desc_gestion.trim():'Sin descripción';gCounts[k]=(gCounts[k]||0)+1;});
     gestiones.forEach(function(g){if(!gCounts[g.nombre])gCounts[g.nombre]=0;});
     var gSorted=Object.entries(gCounts).sort(function(a,b){return b[1]-a[1];});
-    var gData=[['TOTALES POR TIPO DE GESTIÓN — '+mes+' '+anio],['Funcionario: '+uname],[],['DESCRIPCIÓN / GESTIÓN','CANTIDAD']];
-    gSorted.forEach(function(x){gData.push([x[0],x[1]]);});
-    gData.push([]);gData.push(['TOTAL',allRecs.length]);
-    var wsG=XLSX.utils.aoa_to_sheet(gData);wsG['!cols']=[{wch:34},{wch:12}];
+    // Build monto per gestión for export
+    var gMontoMap={};
+    allRecs.forEach(function(r){
+      var k=r.desc_gestion&&r.desc_gestion.trim()?r.desc_gestion.trim():'Sin descripción';
+      gMontoMap[k]=(gMontoMap[k]||0)+(parseFloat(r.monto)||0);
+    });
+    var totalMontoAll=allRecs.reduce(function(s,r){return s+(parseFloat(r.monto)||0);},0);
+    var gData=[['TOTALES POR TIPO DE GESTIÓN — '+mes+' '+anio],['Funcionario: '+uname],[],['DESCRIPCIÓN / GESTIÓN','CANTIDAD','MONTO (₡)']];
+    gSorted.forEach(function(x){gData.push([x[0],x[1],gMontoMap[x[0]]||0]);});
+    gData.push([]);gData.push(['TOTAL',allRecs.length,totalMontoAll]);
+    var wsG=XLSX.utils.aoa_to_sheet(gData);wsG['!cols']=[{wch:34},{wch:12},{wch:16}];
     XLSX.utils.book_append_sheet(wb,wsG,'Por Tipo de Gestión');
     var gBySem={};
     for(var wi=1;wi<=semanas;wi++){var wRecs=allRecs.filter(function(r){return r.semana===wi;});var gc={};wRecs.forEach(function(r){var k=r.desc_gestion&&r.desc_gestion.trim()?r.desc_gestion.trim():'Sin descripción';gc[k]=(gc[k]||0)+1;});gBySem[wi]=gc;}
