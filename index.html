@@ -421,10 +421,16 @@ td.zero{color:var(--tx3);}
   </div>
 
   <!-- DASHBOARD -->
-  <div id="sec-dashboard" class="sec"><div id="dashContent"></div></div>
+  <div id="sec-dashboard" class="sec">
+  <div class="card" style="margin-bottom:10px;padding:10px 14px"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="font-size:0.78rem;color:var(--tx2);white-space:nowrap">📅 Mes:</span><select class="fi" id="dash-mes" style="min-width:110px;flex:1;max-width:160px" onchange="onDashMesChange()"><option>Enero</option><option>Febrero</option><option>Marzo</option><option>Abril</option><option>Mayo</option><option>Junio</option><option>Julio</option><option>Agosto</option><option>Septiembre</option><option>Octubre</option><option>Noviembre</option><option>Diciembre</option></select><input class="fi" id="dash-anio" type="number" value="2026" min="2020" max="2035" style="width:82px" onchange="onDashMesChange()"></div></div>
+  <div id="dashContent"></div>
+</div>
 
   <!-- RESUMEN -->
-  <div id="sec-resumen" class="sec"><div id="resContent"></div></div>
+  <div id="sec-resumen" class="sec">
+  <div class="card" style="margin-bottom:10px;padding:10px 14px"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="font-size:0.78rem;color:var(--tx2);white-space:nowrap">📅 Mes:</span><select class="fi" id="res-mes" style="min-width:110px;flex:1;max-width:160px" onchange="onResMesChange()"><option>Enero</option><option>Febrero</option><option>Marzo</option><option>Abril</option><option>Mayo</option><option>Junio</option><option>Julio</option><option>Agosto</option><option>Septiembre</option><option>Octubre</option><option>Noviembre</option><option>Diciembre</option></select><input class="fi" id="res-anio" type="number" value="2026" min="2020" max="2035" style="width:82px" onchange="onResMesChange()"></div></div>
+  <div id="resContent"></div>
+</div>
 
   <!-- INFORMES -->
   <div id="sec-informes" class="sec">
@@ -818,10 +824,10 @@ function onLoginSuccess() {
     });
   }
   setTimeout(function(){
-    ['cons-mes','pcons-mes','inf-mes'].forEach(function(sel_id){
+    ['cons-mes','pcons-mes','inf-mes','dash-mes','res-mes'].forEach(function(sel_id){
       var el=document.getElementById(sel_id);if(el)el.value=cfgState.mes;
     });
-    ['cons-anio','pcons-anio','inf-anio'].forEach(function(sel_id){
+    ['cons-anio','pcons-anio','inf-anio','dash-anio','res-anio'].forEach(function(sel_id){
       var el=document.getElementById(sel_id);if(el)el.value=cfgState.anio;
     });
   },600);
@@ -1386,6 +1392,9 @@ function switchIngresoMes(){
   });
 }
 
+function onDashMesChange(){destroyCharts();renderDash();}
+function onResMesChange(){renderRes();}
+
 function nav(id,btn){
   document.querySelectorAll('.sec').forEach(function(s){s.classList.remove('on');});
   document.querySelectorAll('.nb').forEach(function(b){b.classList.remove('on');});
@@ -1401,8 +1410,8 @@ function nav(id,btn){
     if(ist)ist.textContent='📅 '+cfgState.mes+' '+cfgState.anio;
     buildWsel();renderWeek();
   }
-  if(id==='dashboard'){destroyCharts();renderDash();}
-  if(id==='resumen')renderRes();
+  if(id==='dashboard'){var _dm=document.getElementById('dash-mes'),_da=document.getElementById('dash-anio');if(_dm)_dm.value=cfgState.mes;if(_da)_da.value=cfgState.anio;destroyCharts();renderDash();}
+  if(id==='resumen'){var _rm=document.getElementById('res-mes'),_ra=document.getElementById('res-anio');if(_rm)_rm.value=cfgState.mes;if(_ra)_ra.value=cfgState.anio;renderRes();}
   if(id==='admin'){loadUsers();loadTeamDash();}
   if(id==='informes'){initInformes();}
 }
@@ -1450,7 +1459,9 @@ function renderDash(targetUserId, targetUserName){
   } else if (uid === (currentProfile ? currentProfile.id : null)) {
     recordsPromise = getAllRecords();
   } else {
-    recordsPromise = sbFetch('GET','/rest/v1/meses?user_id=eq.'+uid+'&activo=eq.true&order=created_at.desc&limit=1').then(function(meses){
+  var _dMes=document.getElementById('dash-mes')?document.getElementById('dash-mes').value:cfgState.mes;
+  var _dAnio=document.getElementById('dash-anio')?parseInt(document.getElementById('dash-anio').value):cfgState.anio;
+  recordsPromise = sbFetch('GET','/rest/v1/meses?user_id=eq.'+uid+'&mes=eq.'+encodeURIComponent(_dMes)+'&anio=eq.'+_dAnio+'&order=created_at.desc&limit=1').then(function(meses){
       if(!meses||!meses.length) return {cobro:[],wapp:[]};
       var mesId=meses[0].id; var semanas=meses[0].semanas||5;
       return sbFetch('GET','/rest/v1/registros?mes_id=eq.'+mesId+'&user_id=eq.'+uid+'&order=created_at.asc').then(function(rows){
@@ -1487,7 +1498,7 @@ function renderDash(targetUserId, targetUserName){
     var statsArr=[
       {l:'Total Gestiones',v:t.cobro.length+t.wapp.length,sub:'Cobro: '+t.cobro.length+' · WA: '+t.wapp.length,cl:'sc-bl'},
       {l:'Gestiones de Cobro',v:t.cobro.length,sub:fmtM(montoCobro),cl:'sc-cy'},
-      {l:'Atención WhatsApp',v:t.wapp.length,sub:'gestiones',cl:'sc-gn'},
+      {l:'Atención WhatsApp',v:t.wapp.length,sub:(function(){var mw=t.wapp.reduce(function(s,r){return s+(parseFloat(r.monto)||0);},0);return mw?fmtM(mw):'gestiones';}()),cl:'sc-gn'},
       {l:'Gestión frecuente',v:topGVal,sub:esc(topG),cl:'sc-vl'},
       {l:'Casos Pendientes',v:pending,sub:done+' resueltos',cl:'sc-yw'},
     ];
@@ -1595,7 +1606,9 @@ function renderRes(targetUserId, targetUserName){
   if (!uid) {
     recordsPromise = Promise.resolve({cobro:[],wapp:[]});
   } else {
-    recordsPromise = sbFetch('GET','/rest/v1/meses?user_id=eq.'+uid+'&activo=eq.true&order=created_at.desc&limit=1').then(function(meses){
+    var _rMes=document.getElementById('res-mes')?document.getElementById('res-mes').value:cfgState.mes;
+    var _rAnio=document.getElementById('res-anio')?parseInt(document.getElementById('res-anio').value):cfgState.anio;
+    recordsPromise = sbFetch('GET','/rest/v1/meses?user_id=eq.'+uid+'&mes=eq.'+encodeURIComponent(_rMes)+'&anio=eq.'+_rAnio+'&order=created_at.desc&limit=1').then(function(meses){
       if(!meses||!meses.length) return {cobro:[],wapp:[]};
       var mesId = meses[0].id;
       return sbFetch('GET','/rest/v1/registros?mes_id=eq.'+mesId+'&user_id=eq.'+uid+'&order=created_at.asc').then(function(rows){
